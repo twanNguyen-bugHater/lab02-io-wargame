@@ -1,0 +1,12 @@
+*.pdf
+*.docx
+__pycache__/
+.DS_Store
+*.pyc
+*.o
+*.so
+*.exe
+core
+.vscode/
+.idea/
+*.swp
