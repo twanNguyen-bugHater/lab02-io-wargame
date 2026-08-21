@@ -1,0 +1,28 @@
+Level 6 - Buffer Overflow (Tràn bộ đệm do dùng sai strncpy và strcat)
+
+Lỗ hổng: 
+- Lỗi xuất phát từ việc sử dụng hàm `strncpy(user.name, argv[1], 40)`. Nếu độ dài của `argv[1]` truyền vào đúng bằng 40 byte, hàm `strncpy` sẽ copy toàn bộ nhưng KHÔNG tự động chèn ký tự ngắt chuỗi `\0` vào cuối mảng `user.name`.
+- Trong cấu trúc `struct UserRecord`, mảng `user.password[32]` nằm nối tiếp ngay sau `user.name[40]`. 
+- Khi hàm `greetuser` gọi `strcat(greeting, user.name)`, do không thấy dấu `\0` kết thúc ở `name`, hàm `strcat` tiếp tục đọc tràn sang phần dữ liệu của `password` (tức `argv[2]`). 
+- Việc nối một chuỗi quá dài vào mảng `greeting[64]` sẽ làm tràn Stack, ghi đè lên con trỏ khung hình (Saved EBP) và địa chỉ trả về (Saved EIP), cho phép chiếm quyền điều khiển luồng thực thi.
+
+Cách khai thác:
+1. Tạo không gian an toàn (Biến môi trường - EGG):
+   Lưu đoạn Shellcode (mã máy gọi `/bin/sh`) vào biến môi trường `SHELLCODE` với 100 byte NOP Sled (`\x90`) mồi phía trước để tạo "bãi đáp". Việc này giúp tránh bị giới hạn không gian 64 byte của mảng `greeting`.
+
+2. Tìm địa chỉ bộ nhớ của Shellcode:
+   Viết một tool nhỏ bằng C (`getenvaddr.c`) dùng hàm `getenv()` để quét và tìm địa chỉ của `SHELLCODE` trên Stack. Kết quả thu được địa chỉ là `0xbffffdd2`.
+
+3. Tính toán Offset (Khoảng đệm) để ghi đè EIP:
+   - Gán `export LANG="fr"` để chuyển câu chào thành `"Bienvenue "` (chiếm 10 bytes).
+   - Truyền `argv[1]` gồm 40 byte `\x90` để lấp đầy `user.name` và triệt tiêu ký tự ngắt chuỗi `\0`.
+   - Tính toán khoảng cách tới EIP: Độ dài mảng greeting (64 bytes) + Alignment Space (8 bytes) + Saved EBP (4 bytes) = 76 bytes.
+   - Trừ đi lượng dữ liệu đã có: 76 bytes - 10 bytes ("Bienvenue ") - 40 bytes (argv[1]) = 26 bytes.
+   => Vậy phần đệm thêm ở `argv[2]` sẽ cần 26 byte `\x90`.
+
+4. Lắp ráp Payload cuối cùng:
+   - Phần padding: 26 byte NOP (`"\x90"*26`).
+   - Phần EIP: 4 byte địa chỉ của Shellcode, được đảo ngược theo cấu trúc Little-Endian thành `\xd2\xfd\xff\xbf`.
+   - Lệnh thực thi: `/levels/level06 $(python2 -c 'print "\x90"*40') $(python2 -c 'print "\x90"*26 + "\xd2\xfd\xff\xbf"')`. Lệnh này ghi đè thành công EIP, mở shell đặc quyền của level 7.
+
+Pass/Key: U3A6ZtaTub14VmwV
