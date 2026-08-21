@@ -1,0 +1,26 @@
+Level 7 - Integer Overflow & Signedness Mismatch Buffer Overflow
+
+Lỗ hổng:
+1. Signedness Mismatch: Biến `count` được khai báo là kiểu `int` (32-bit có dấu). Do đó, truyền tham số số âm sẽ lọt qua chốt kiểm tra điều kiện `if(count >= 10)`.()
+2. Integer Overflow / Implicit Cast:
+   - Hàm `memcpy` nhận tham số kích thước kiểu `size_t` (unsigned int).
+   - Khi tính toán `count * sizeof(int)` (tương đương count * 4), nếu chọn `count = -1073741808` (mã Hex: 0xC0000010):
+     0xC0000010 * 4 = 0x300000040.
+   - Do thanh ghi 32-bit bị tràn số (Truncation), chữ số 3 bị tràn và loại bỏ, kết quả còn lại là 0x00000040 (64 bytes).
+3. Stack Buffer Overflow: `memcpy` chép 64 bytes từ `argv[2]` tràn qua mảng `buf[10]` (40 bytes) và vùng đệm Padding, ghi đè trọn vẹn lên biến `count` trên Stack.
+
+Cách khai thác:
+1. Đọc mã nguồn `level07.c` và mở GDB xem mã Assembly (`disas main`). Xác định biến `count` lưu tại `[ebp - 0xc]`.
+2. Đặt breakpoint tại `memcpy` và chạy `r 9 AAAA` để tạo marker `0x41414141`.
+3. Kiểm tra Stack bằng `x/64xw $esp`:
+   - Tìm địa chỉ bắt đầu của `buf`: `0xbffffc10` (chứa 0x41414141).
+   - Tìm địa chỉ của biến `count`: `0xbffffc4c` (chứa giá trị 0x00000009).
+4. Tính khoảng cách Padding từ `buf` tới `count`:
+   0xbffffc4c - 0xbffffc10 = 60 bytes.
+5. Xác định tổng số bytes cần `memcpy` chép là 60 bytes đệm + 4 bytes ghi đè `count` = 64 bytes.
+6. Tính toán tham số `count` âm để sinh ra 64 bytes tràn: `-1073741808`.
+7. Đổi giá trị mục tiêu `0x574f4c46` sang chuẩn Little-Endian: `\x46\x4c\x4f\x57`.
+8. Thực thi payload truyền `argv[1] = -1073741808` và `argv[2] = 60 byte \x90 + \x46\x4c\x4f\x57` để ghi đè `count`, kích hoạt hàm `execl` chiếm quyền shell.
+9. Chạy lệnh `cat /home/level8/.pass` để lấy mật khẩu.
+
+Pass/Key: VSIhoeMkikH6SGht
