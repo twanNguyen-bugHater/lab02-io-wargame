@@ -1,0 +1,20 @@
+Level 08 - C++ VTable Hijacking (Ghi đè con trỏ hàm ảo C++)
+
+Lỗ hổng: 
+- Lỗi Buffer Overflow xảy ra trong hàm `setAnnotation` của class `Number` do sử dụng `memcpy(annotation, a, strlen(a))` mà không kiểm tra độ dài đầu vào của biến `a` (lấy từ `argv[1]`), trong khi mảng `annotation` chỉ có kích thước 100 bytes.
+- Hai đối tượng `five` và `six` được cấp phát bộ nhớ liên tiếp nhau. Do class `Number` có chứa hàm ảo (`virtual int operator+`), trình biên dịch C++ sẽ chèn một con trỏ `vptr` (Virtual Pointer) vào 4 byte đầu tiên của mỗi object để trỏ tới bảng VTable.
+- Dữ liệu bị tràn từ mảng `annotation` của object `five` sẽ lan sang và ghi đè trực tiếp lên `vptr` của object `six` nằm ngay liền kề.
+
+Cách khai thác:
+1. Phân tích bộ nhớ bằng GDB để tìm địa chỉ mảng `annotation` của `five` (0x0804ea14) và địa chỉ con trỏ `vptr` của `six` (0x0804ea80). 
+2. Tính toán Offset: 0x0804ea80 - 0x0804ea14 = 0x6C (108 bytes).
+3. Mục tiêu: Khi chương trình gọi lệnh `return six + five;`, nó sẽ lấy địa chỉ hàm từ `vptr` của `six`. Kẻ tấn công sẽ tạo một Fake VTable để đánh lừa luồng thực thi này.
+4. Xây dựng cấu trúc Payload (tổng cộng 108 bytes đệm + 4 bytes ghi đè vptr):
+   - [4 byte con trỏ Fake VTable]: `\x18\xea\x04\x08` (đặt tại đầu mảng annotation 0x0804ea14, trỏ tới vị trí mã độc ở 0x0804ea18).
+   - [4 byte NOP sled]: `\x90\x90\x90\x90` (đệm an toàn).
+   - [38 byte Shellcode]: Thực thi `/bin/sh`.
+   - [62 byte Padding]: `A`*62 (Kéo dài payload để vừa khít 108 bytes).
+   - [4 byte Ghi đè vptr của six]: `\x14\xea\x04\x08` (Sửa vptr của six trỏ ngược lại về đầu mảng annotation của five - nơi ta đã đặt Fake VTable).
+5. Khi gọi phép cộng `+`, chương trình nhảy vào Fake VTable, đọc địa chỉ Shellcode và thực thi lệnh mở shell với quyền của level9.
+
+Pass/Key: ise9uHhjOhZd0K4G
