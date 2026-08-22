@@ -1,0 +1,16 @@
+Level 09 - Format String Vulnerability
+
+Lỗ hổng:
+Chương trình gọi printf(buf) trực tiếp với chuỗi đầu vào do người dùng kiểm soát mà không có chuỗi định dạng cố định (như printf("%s", buf)). Điều này cho phép người dùng truyền các specifiers như %x, %p để 
+đọc Stack và đặc biệt là %n để thực hiện thao tác ghi đè dữ liệu tùy ý (Arbitrary Memory Write) vào bộ nhớ RAM.
+
+Cách khai thác:
+1. Đưa Shellcode vào biến môi trường SHELLCODE kèm NOP sled (\x90) để né tránh giới hạn kích thước đệm của chương trình.
+2. Mở chương trình bằng GDB, đặt breakpoint tại main và kiểm tra bộ nhớ Stack (x/256xw $ebp) để xác định vị trí vùng NOP sled của biến môi trường.
+3. Xác định địa chỉ của bảng .dtors (__DTOR_END__) – vùng chứa con trỏ hàm được tự động gọi khi chương trình kết thúc.
+4. Xây dựng chuỗi Payload Format String gồm 4 byte địa chỉ liên tiếp của .dtors, kết hợp các khoảng đệm độ rộng (%u) và specifier %n để ghi từng byte địa chỉ Shellcode vào .dtors.
+5. Thực thi chương trình với payload. Khi hàm main() trả về, luồng điều khiển nhảy đến Shellcode trong biến môi trường và kích hoạt shell.
+6. Lấy mật khẩu level tiếp theo bằng lệnh: cat /home/level10/.pass
+
+Pass/Key:
+UT3ROlnUqI0R2nJA
