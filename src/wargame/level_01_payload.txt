@@ -1,2 +1,17 @@
 # Level 1 - Payload / Command
-# [Điền payload hoặc command khai thác vào đây]
+
+# 1. Phân tích binary bằng gdb để tìm passcode hợp lệ
+gdb ./level01
+disas main
+# → cmp    $0x10f,%eax   (so sánh eax với 0x10f rồi je nhảy vào nhánh thành công)
+p/d 0x10f
+# → $1 = 271
+quit
+
+# 2. Chạy chương trình với passcode vừa tìm được
+./level01
+# Enter the 3 digit passcode to enter: 271
+# → Congrats you found it, now read the password for level2 from /home/level2/.pass
+
+# 3. Lấy password cho level 2 (trong shell setuid vừa mở ra)
+cat /home/level2/.pass

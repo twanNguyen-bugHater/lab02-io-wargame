@@ -1,0 +1,90 @@
+Level 4 - PATH hijacking qua popen("whoami","r") + 3 cạm bẫy khi khai thác (bash tự hạ quyền, quyền ghi thư mục, race condition qua pipe)
+
+Source liên quan (level04.c):
+  int main() {
+      char username[1024];
+      FILE* f = popen("whoami","r");
+      fgets(username, sizeof(username), f);
+      printf("Welcome %s", username);
+      return 0;
+  }
+
+Lỗ hổng:
+- popen("whoami","r") gọi lệnh "whoami" qua "/bin/sh -c whoami" nhưng KHÔNG
+  dùng đường dẫn tuyệt đối (đáng lẽ phải là "/usr/bin/whoami"). sh sẽ tra cứu
+  lệnh "whoami" theo thứ tự các thư mục trong biến môi trường $PATH. Attacker
+  chèn 1 thư mục do mình kiểm soát vào đầu $PATH, đặt trong đó 1 file tên
+  "whoami" tự viết -> khi binary setuid (owner level5) chạy popen(), nó thực
+  thi NHẦM file giả của attacker, nhưng vẫn với quyền euid=level5 (vì setuid
+  không phụ thuộc $PATH).
+
+Cách khai thác (kèm 3 vấn đề gặp phải và cách xử lý):
+
+  1. cat /levels/level04.c            (đọc source, xác định popen("whoami"))
+  2. ls -la /levels/level04*          (xác nhận setuid owner = level5)
+  3. ./level04                        (chạy thử bình thường -> in "Welcome level5",
+                                        chỉ xác nhận euid hiệu lực, chưa phải khai thác)
+
+  4. Tạo file "whoami" giả:
+     mkdir -p /tmp/toan_lv4 && cd /tmp/toan_lv4
+     cat > whoami << 'EOF'
+     #!/bin/bash -p
+     cat /home/level5/.pass > /tmp/level5_pass_toan.txt
+     chmod 644 /tmp/level5_pass_toan.txt
+     /bin/bash -p
+     EOF
+     chmod +x whoami
+     export PATH=/tmp/toan_lv4:$PATH
+     /levels/level04
+
+  VẤN ĐỀ 1 - bash tự động hạ quyền nếu không có "-p":
+     Nếu file whoami chỉ viết "#!/bin/bash" (không "-p"), bash phát hiện
+     ruid(level4) != euid(level5) và TỰ ĐỘNG gọi setuid(getuid()) để hạ euid
+     về bằng ruid - đây là cơ chế tự bảo vệ của bash khi phát hiện đang chạy
+     dưới quyền setuid đáng ngờ. Phải thay bằng "#!/bin/bash -p" (và gọi
+     "/bin/bash -p" bên trong script) để giữ nguyên euid=level5.
+
+  VẤN ĐỀ 2 - thư mục tự tạo (mkdir) mặc định KHÔNG thể ghi được với euid khác:
+     mkdir tạo thư mục với owner=level4, quyền mặc định 755 (rwxr-xr-x) - chỉ
+     owner (level4) mới có quyền GHI. Khi script chạy với euid=level5, tiến
+     trình không còn là owner của thư mục đó (dùng euid để kiểm tra quyền
+     file) -> ghi file mới vào đó bị "Permission denied". Cách xử lý: ghi
+     thẳng ra /tmp (thư mục gốc, mặc định quyền 1777 - world-writable + sticky
+     bit) thay vì thư mục con tự tạo, hoặc chmod 777 thư mục con trước khi
+     chạy exploit.
+
+  VẤN ĐỀ 3 - race condition giữa 2 shell cùng đọc chung 1 terminal (tty):
+     popen() chỉ redirect STDOUT của tiến trình con qua pipe, KHÔNG đụng vào
+     stdin. Chương trình level04 chỉ gọi fgets() ĐÚNG 1 LẦN rồi return ngay -
+     tiến trình cha (level04) kết thúc rất nhanh. Nếu bạn mở 1 shell tương tác
+     (/bin/bash -p ở cuối script), shell này VẪN CÒN SỐNG (mồ côi) sau khi
+     level04 đã thoát, và nó VẪN đang đọc stdin từ chính terminal đó - cùng
+     lúc với shell đăng nhập GỐC (level4, không đặc quyền) đã quay trở lại
+     làm prompt hiện tại. Lệnh bạn gõ tiếp theo có thể rơi vào TAY SHELL NÀO
+     CŨNG ĐƯỢC (không thể đoán trước), gây ra 2 hệ quả:
+       a) Nếu lệnh rơi vào shell level4 gốc -> bị từ chối quyền ("Permission
+          denied") đối với thao tác cần quyền level5.
+       b) Output của lệnh (nếu rơi vào shell đặc quyền còn sống) sẽ chảy qua
+          pipe của popen, bị fgets() bắt lại và in ra dưới dạng
+          "Welcome <output đó>" - đó là lý do "cat /tmp/level5_pass_toan.txt"
+          lại hiện thành "Welcome DNLM3Vu0mZfX0pDd" thay vì in bình thường.
+     Cách xử lý triệt để: KHÔNG dựa vào việc gõ tay kịp lúc - để chính script
+     "whoami" giả TỰ ĐỘNG lấy và ghi pass ra file (như VẤN ĐỀ 2) ngay trong
+     lúc còn giữ quyền level5, trước khi bất kỳ race nào có cơ hội xảy ra.
+
+  LƯU Ý THÊM - logout vs exit:
+     Sau khi level04 thoát, prompt quay về đúng shell đăng nhập SSH GỐC (login
+     shell), không phải shell con. Nếu gõ "logout" lúc này sẽ đóng LUÔN CẢ
+     PHIÊN SSH (logout là builtin dành riêng cho login shell), khác với "exit"
+     (chỉ đóng 1 subshell hiện tại). Đây là lý do phiên SSH bị ngắt đột ngột.
+
+  5. Đọc pass đã được ghi sẵn ra file (không cần quan tâm đang ở shell nào):
+     cat /tmp/level5_pass_toan.txt
+
+Kỹ thuật liên quan: PATH hijacking, popen() không dùng đường dẫn tuyệt đối,
+                    setuid + bash tự hạ quyền (cần "-p"), quyền file/thư mục
+                    dựa trên euid, buffered pipe của popen(), race condition
+                    khi nhiều tiến trình cùng đọc 1 stdin/tty, phân biệt
+                    "exit" và "logout" trong bash
+
+Pass/Key: DNLM3Vu0mZfX0pDd

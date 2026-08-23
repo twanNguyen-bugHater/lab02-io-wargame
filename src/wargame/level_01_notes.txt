@@ -1,5 +1,19 @@
-Level 1 - [Tên lỗ hổng]
+Level 1 - Reverse engineering / static analysis (disassembly)
 
-Lỗ hổng: [Chi tiết]
-Cách khai thác: [Chi tiết]
-Pass/Key: [Chi tiết]
+Lỗ hổng: Mã passcode được hardcode (ghi cứng) trong chương trình,
+         có thể đọc trực tiếp bằng cách disassemble. Chương trình
+         không mã hóa hay ẩn giấu hằng số so sánh, nên chỉ cần đọc
+         mã máy là suy ra được passcode hợp lệ.
+
+Cách khai thác:
+  1. gdb ./level01
+  2. disas main        (thực chất là hàm _start, xem hợp ngữ)
+  3. Thấy dòng: cmp $0x10f,%eax  → passcode đúng = 0x10f
+  4. p/d 0x10f         (đổi hex sang decimal) → 271
+  5. Chạy ./level01, nhập 271 → thành công
+  6. Trong shell setuid: cat /home/level2/.pass để lấy pass level 2
+
+Kỹ thuật liên quan: gdb, disassembly, thanh ghi eax, lệnh cmp/je,
+                    hệ hex, binary setuid
+
+Pass/Key: XNWFtWKWHhaaXoKI
