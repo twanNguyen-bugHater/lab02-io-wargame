@@ -1,0 +1,35 @@
+Level 10 - Arbitrary Single-Byte NULL Write
+
+Lỗ hổng:
+
+Chương trình có char ptr[0]; ptr[atoi(argv[1])] = 0;, cho phép ghi một byte 0x00 tại vị trí bộ nhớ do người dùng kiểm soát.
+ptr nằm trên stack, còn FILE *fp trỏ tới cấu trúc FILE nằm trên heap.
+Mục tiêu là ghi 0x00 vào byte thích hợp của _IO_read_ptr trong FILE, làm thay đổi vị trí đọc của fread().
+
+Cách khai thác:
+
+Phân tích disas main để xác định:
+ptr tại ebp - 0x1c0.
+fp tại ebp - 0x1c.
+Xác định địa chỉ FILE bằng GDB/crash message: 0x0804b008.
+
+_IO_read_ptr nằm tại FILE + 4. Tính offset:
+
+N = (FILE + 4) - &ptr
+
+Sau khi xác định địa chỉ &ptr, thu được vùng giá trị quanh 1208267684.
+
+Brute-force các giá trị gần đó và nhận thấy:
+
+1208267684
+
+làm fread() đọc lại dữ liệu, khiến password xuất hiện trong msg_err.
+
+Lấy password rồi dùng làm đối số cho level10 để mở shell level 11.
+
+Payload:
+
+env -i PWD=/tmp SHLVL=0 /levels/level10_bis "1208267684"
+env -i PWD=/tmp SHLVL=0 /levels/level10 'AveryLoNgPassword!!'
+
+Pass/Key: fIpE1GkOkCLE0j94
